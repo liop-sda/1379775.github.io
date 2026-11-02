@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>星谷乱斗 - 2D双人对战</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#1a2a1a; display:flex; justify-content:center; align-items:center; height:100vh; overflow:hidden; font-family:system-ui; }
+  canvas { background:#7cb342; border:4px solid #558b2f; border-radius:8px; }
+  #hud { position:fixed; top:10px; left:0; right:0; display:flex; justify-content:space-between; padding:0 20px; pointer-events:none; }
+  .hpbar { width:200px; height:20px; background:#333; border-radius:10px; overflow:hidden; border:2px solid #fff; }
+  .hpbar .fill { height:100%; transition:width 0.2s; }
+  #p1hp .fill { background:#42a5f5; }
+  #p2hp .fill { background:#ef5350; }
+  .hp-label { color:#fff; font-size:14px; margin-bottom:4px; text-shadow:0 1px 2px #000; }
+  #center { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.7); z-index:10; }
+  #center h1 { color:#fff; font-size:36px; margin-bottom:20px; }
+  #center p { color:#ccc; font-size:14px; line-height:1.8; text-align:center; margin-bottom:20px; }
+  #center button { padding:12px 32px; font-size:18px; border:none; border-radius:8px; background:#ff9800; color:#fff; cursor:pointer; font-weight:bold; }
+  #center button:hover { background:#fb8c00; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div>
+    <div class="hp-label">P1 玩家1 (WASD + J近战 + K远程)</div>
+    <div class="hpbar" id="p1hp"><div class="fill" style="width:100%"></div></div>
+  </div>
+  <div>
+    <div class="hp-label" style="text-align:right">P2 玩家2 (方向键 + 1近战 + 2远程)</div>
+    <div class="hpbar" id="p2hp"><div class="fill" style="width:100%; margin-left:auto"></div></div>
+  </div>
+</div>
+<canvas id="game" width="960" height="600"></canvas>
+<div id="center">
+  <h1>⚔️ 星谷乱斗</h1>
+  <p>
+    双人同屏对战，先把对方血打空就赢！<br><br>
+    🔵 P1：WASD 移动 · J 近战斩 · K 远程弹<br>
+    🔴 P2：方向键 移动 · 小键盘1 近战斩 · 小键盘2 远程弹<br><br>
+    近战伤害高冷却短，远程伤害低但能远程消耗。
+  </p>
+  <button onclick="startGame()">开始对战</button>
+</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const keys = {};
+addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if(e.key.startsWith('Arrow')) e.preventDefault(); });
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+let gameRunning = false;
+let bullets = [];
+
+function makePlayer(x, y, color, isP1) {
+  return {
+    x, y, w: 32, h: 40,
+    color,
+    speed: 3,
+    hp: 100,
+    facing: isP1 ? 1 : -1,
+    attackCd: 0,
+    shootCd: 0,
+    invincible: 0,
+    isP1
+  };
+}
+
+let p1, p2;
+
+function startGame() {
+  document.getElementById('center').style.display = 'none';
+  p1 = makePlayer(120, H/2, '#42a5f5', true);
+  p2 = makePlayer(W-120, H/2, '#ef5350', false);
+  bullets = [];
+  gameRunning = true;
+  requestAnimationFrame(loop);
+}
+
+function doAttack(attacker, target) {
+  if(attacker.attackCd > 0) return;
+  attacker.attackCd = 25;
+  const ax = attacker.facing > 0 ? attacker.x + attacker.w : attacker.x - 50;
+  const ay = attacker.y - 5;
+  const aw = 50, ah = attacker.h + 10;
+  if(target.x < ax + aw && target.x + target.w > ax &&
+     target.y < ay + ah && target.y + target.h > ay) {
+    if(target.invincible <= 0) {
+      target.hp -= 12;
+      target.invincible = 25;
+      target.x += attacker.facing * 15;
+      updateHud();
+      checkWin(attacker);
+    }
+  }
+}
+
+function doShoot(shooter) {
+  if(shooter.shootCd > 0) return;
+  shooter.shootCd = 40;
+  bullets.push({
+    x: shooter.facing > 0 ? shooter.x + shooter.w : shooter.x - 10,
+    y: shooter.y + shooter.h/2 - 5,
+    vx: shooter.facing * 7,
+    r: 6,
+    owner: shooter.isP1 ? 1 : 2,
+    color: shooter.color
+  });
+}
+
+function checkWin(winner) {
+  if(p1.hp <= 0 || p2.hp <= 0) {
+    gameRunning = false;
+    document.getElementById('center').style.display = 'flex';
+    document.getElementById('center').querySelector('h1').textContent = winner.isP1 ? '🔵 P1 胜利！' : '🔴 P2 胜利！';
+    document.getElementById('center').querySelector('p').innerHTML = '再来一局？';
+    document.getElementById('center').querySelector('button').textContent = '再来一局';
+  }
+}
+
+function updateHud() {
+  document.querySelector('#p1hp .fill').style.width = Math.max(0, p1.hp) + '%';
+  document.querySelector('#p2hp .fill').style.width = Math.max(0, p2.hp) + '%';
+}
+
+function loop() {
+  if(!gameRunning) return;
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.fillStyle = '#7cb342';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(0,0,0,0.08)';
+  ctx.lineWidth = 1;
+  for(let x = 0; x < W; x += 40) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for(let y = 0; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  ctx.fillStyle = '#558b2f';
+  ctx.fillRect(W/2 - 20, H/2 - 30, 40, 60);
+  ctx.fillStyle = '#33691e';
+  ctx.fillRect(W/2 - 10, H/2 + 20, 20, 15);
+
+  let dx1 = 0, dy1 = 0;
+  if(keys['w']) dy1 -= p1.speed;
+  if(keys['s']) dy1 += p1.speed;
+  if(keys['a']) dx1 -= p1.speed;
+  if(keys['d']) dx1 += p1.speed;
+  if(dx1 !== 0) p1.facing = dx1 > 0 ? 1 : -1;
+
+  let dx2 = 0, dy2 = 0;
+  if(keys['arrowup']) dy2 -= p2.speed;
+  if(keys['arrowdown']) dy2 += p2.speed;
+  if(keys['arrowleft']) dx2 -= p2.speed;
+  if(keys['arrowright']) dx2 += p2.speed;
+  if(dx2 !== 0) p2.facing = dx2 > 0 ? 1 : -1;
+
+  p1.x = Math.max(0, Math.min(W - p1.w, p1.x + dx1));
+  p1.y = Math.max(0, Math.min(H - p1.h, p1.y + dy1));
+  p2.x = Math.max(0, Math.min(W - p2.w, p2.x + dx2));
+  p2.y = Math.max(0, Math.min(H - p2.h, p2.y + dy2));
+
+  p1.attackCd = Math.max(0, p1.attackCd - 1);
+  p1.shootCd = Math.max(0, p1.shootCd - 1);
+  p1.invincible = Math.max(0, p1.invincible - 1);
+  p2.attackCd = Math.max(0, p2.attackCd - 1);
+  p2.shootCd = Math.max(0, p2.shootCd - 1);
+  p2.invincible = Math.max(0, p2.invincible - 1);
+
+  if(keys['j']) doAttack(p1, p2);
+  if(keys['k']) doShoot(p1);
+  if(keys['1']) doAttack(p2, p1);
+  if(keys['2']) doShoot(p2);
+
+  for(let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.x += b.vx;
+    if(b.x < -20 || b.x > W + 20) { bullets.splice(i, 1); continue; }
+    const target = b.owner === 1 ? p2 : p1;
+    if(target.x < b.x + b.r && target.x + target.w > b.x - b.r &&
+       target.y < b.y + b.r && target.y + target.h > b.y - b.r) {
+      if(target.invincible <= 0) {
+        target.hp -= 6;
+        target.invincible = 15;
+        updateHud();
+        checkWin(b.owner === 1 ? p1 : p2);
+      }
+      bullets.splice(i, 1);
+    }
+  }
+
+  bullets.forEach(b => {
+    ctx.fillStyle = b.color;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  drawPlayer(p1);
+  drawPlayer(p2);
+
+  if(p1.attackCd > 20) drawAttackRange(p1);
+  if(p2.attackCd > 20) drawAttackRange(p2);
+
+  requestAnimationFrame(loop);
+}
+
+function drawPlayer(p) {
+  if(p.invincible > 0 && Math.floor(p.invincible / 3) % 2 === 0) {
+    ctx.globalAlpha = 0.5;
+  }
+  ctx.fillStyle = p.color;
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(p.x + 6, p.y + 8, p.w - 12, 10);
+  ctx.fillStyle = '#000';
+  const eyeX = p.facing > 0 ? p.x + p.w - 14 : p.x + 8;
+  ctx.fillRect(eyeX, p.y + 10, 4, 4);
+  ctx.globalAlpha = 1;
+}
+
+function drawAttackRange(p) {
+  ctx.fillStyle = 'rgba(255,235,59,0.4)';
+  const ax = p.facing > 0 ? p.x + p.w : p.x - 50;
+  ctx.fillRect(ax, p.y - 5, 50, p.h + 10);
+}
+</script>
+</body>
+</html>
